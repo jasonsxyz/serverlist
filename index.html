@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ProgSoc x MCSoc Servers</title>
+    <link rel="stylesheet" href="https://fonts.cdnfonts.com/css/minecraftia" />
+    <style>
+      @font-face {
+        font-family: "Minecraft Local";
+        src:
+          url("fonts/minecraft.woff2") format("woff2"),
+          url("fonts/minecraft.ttf") format("truetype");
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Chakra Petch";
+        font-weight: 700;
+        src: url("fonts/chakra-petch-latin-700-normal.woff2") format("woff2");
+        font-display: block;
+      }
+
+      /* 1rem = 10 design px on a 1850px-wide canvas, so the whole board scales with the screen */
+      html {
+        font-size: calc(100vw / 185);
+        background: #000;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      body {
+        min-height: 103.7rem;
+        padding: 3.1rem 2.8rem 0;
+        background: #000;
+        color: #fff;
+        font-family: "Minecraftia", "Minecraft Local", monospace;
+        -webkit-font-smoothing: none;
+        font-smooth: never;
+      }
+
+      header {
+        height: 6rem;
+        display: flex;
+        align-items: center;
+        gap: 5.4rem;
+        margin-bottom: 3.8rem;
+      }
+      header img {
+        display: block;
+        height: 6.2rem;
+        width: auto;
+        image-rendering: pixelated;
+      }
+      header .rule {
+        flex: 1;
+        height: 0.2rem;
+        background: #0b4fa8;
+      }
+      header h1 {
+        font-family: "Chakra Petch", sans-serif;
+        font-weight: 700;
+        font-size: 3.05rem;
+        letter-spacing: 0.02em;
+        line-height: 1;
+        color: #0a6cff;
+        white-space: nowrap;
+        text-transform: uppercase;
+      }
+
+      #grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1.9rem 1.9rem;
+      }
+
+      .server {
+        height: 11.3rem;
+        border: 0.3rem solid #fff;
+        padding: 1.4rem 1.7rem;
+        display: flex;
+        gap: 1.3rem;
+        align-items: flex-start;
+        background: #000;
+      }
+      .server .icon {
+        width: 7.8rem;
+        height: 7.8rem;
+        flex: none;
+        image-rendering: pixelated;
+        display: block;
+      }
+      .server .body {
+        flex: 1;
+        min-width: 0;
+      }
+      .server .top {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        height: 2.9rem;
+        padding-top: 0.4rem;
+      }
+      .server .name,
+      .server .status {
+        font-size: 2rem;
+        line-height: 1;
+      }
+      .server .motd {
+        font-size: 2rem;
+        line-height: 2.4rem;
+        white-space: pre;
+      }
+      .server .motd div {
+        overflow: hidden;
+        text-overflow: clip;
+      }
+      .server.online .status {
+        color: #19e83a;
+      }
+      .server.offline .status {
+        color: #ff1a1a;
+      }
+      .server.offline .motd {
+        color: #6a6a6a;
+        text-transform: none;
+      }
+
+      .offline {
+        opacity: 0.2;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img src="assets/mc_progsoc.png" alt="ProgSoc" />
+      <div class="rule"></div>
+      <h1>ProgSoc x MCSoc Servers</h1>
+      <div class="rule"></div>
+      <img src="assets/mc_utscsoc.png" alt="MCSoc" />
+    </header>
+
+    <main id="grid"></main>
+
+    <script>
+      // Where the API lives. Override with ?api=http://host:port in the page URL.
+      const API_BASE =
+        new URLSearchParams(location.search).get("api") ||
+        "http://127.0.0.1:5000";
+      const REFRESH_MS = 5000; // matches the API's 5s cache
+      const DEFAULT_ICON = "assets/srv_dolphin.png";
+      const DEAD_ICON = "assets/srv_dead.png";
+
+      const grid = document.getElementById("grid");
+      const esc = (s) =>
+        String(s ?? "").replace(
+          /[&<>"]/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+
+      function seg(g) {
+        const css = [];
+        if (g.c)
+          css.push(`color:${/^#[0-9a-f]{3,8}$/i.test(g.c) ? g.c : "#fff"}`);
+        if (g.b) css.push("font-weight:bold");
+        if (g.i) css.push("font-style:italic");
+        const deco = [g.u && "underline", g.s && "line-through"]
+          .filter(Boolean)
+          .join(" ");
+        if (deco) css.push(`text-decoration:${deco}`);
+        return `<span style="${css.join(";")}">${esc(g.t)}</span>`;
+      }
+
+      function card(s) {
+        if (!s.online) {
+          return `<div class="server offline">
+        <img class="icon" src="${DEAD_ICON}" alt="">
+        <div class="body">
+          <div class="top"><span class="name">${esc(s.name)}</span><span class="status">Offline</span></div>
+          <div class="motd"><div>Connecting...</div></div>
+        </div></div>`;
+        }
+        // MOTD arrives as lines of styled segments (colour, bold, italic, underline, strikethrough).
+        const lines = (
+          s.motd_lines && s.motd_lines.length
+            ? s.motd_lines
+            : [[{ t: s.version || "" }]]
+        ).slice(0, 2);
+        return `<div class="server online">
+      <img class="icon" src="${esc(s.icon || DEFAULT_ICON)}" alt="">
+      <div class="body">
+        <div class="top"><span class="name">${esc(s.name)}</span><span class="status">${s.players}/${s.max} people</span></div>
+        <div class="motd">${lines.map((l) => `<div>${l.map(seg).join("") || "&nbsp;"}</div>`).join("")}</div>
+      </div></div>`;
+      }
+
+      let inFlight = false;
+      async function refresh() {
+        if (inFlight) return; // a slow check shouldn't stack up requests
+        inFlight = true;
+        try {
+          const res = await fetch(`${API_BASE}/api/servers`, {
+            cache: "no-store",
+          });
+          if (!res.ok) throw new Error(res.status);
+          const { servers } = await res.json();
+          // online first (stable sort keeps the API's order within each group)
+          servers.sort((a, b) => Number(b.online) - Number(a.online));
+          grid.innerHTML = servers.map(card).join("");
+        } catch (err) {
+          console.error("Could not load servers", err);
+          if (!grid.querySelector(".server:not(.error)"))
+            grid.innerHTML =
+              '<div class="server offline error" style="grid-column:1/-1"><div class="body"><div class="top"><span class="name">Could not reach the server list</span></div></div></div>';
+        } finally {
+          inFlight = false;
+        }
+      }
+      refresh();
+      setInterval(refresh, REFRESH_MS);
+    </script>
+  </body>
+</html>
